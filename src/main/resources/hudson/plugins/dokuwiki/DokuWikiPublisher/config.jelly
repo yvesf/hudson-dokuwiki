@@ -1,0 +1,21 @@
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define"
+	xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form">
+	<f:advanced>
+		<f:entry title="Username" help="/plugin/dokuwiki/help-project-id.html">
+			<input class="setting-input" name="dokuwiki.username" type="text"
+				value="${instance.id}" />
+		</f:entry>
+		<f:entry title="Password" help="/plugin/dokuwiki/help-project-password.html">
+			<input class="setting-input" name="dokuwiki.password" type="password"
+				value="${instance.password}" />
+		</f:entry>
+		<f:entry title="Pagename" help="/plugin/dokuwiki/help-project-pagename.html">
+			<input class="setting-input" name="dokuwiki.pagename" type="text"
+				value="${instance.pagename}" />
+		</f:entry>
+		<f:entry title="XML-RPC Url" help="/plugin/dokuwiki/help-project-url.html">
+			<input class="setting-url" name="dokuwiki.url" type="text"
+				value="${instance.url}" />
+		</f:entry>
+	</f:advanced>
+</j:jelly>
