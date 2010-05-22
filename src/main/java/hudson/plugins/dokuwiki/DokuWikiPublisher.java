@@ -111,30 +111,27 @@ public class DokuWikiPublisher extends Notifier {
 						+ build.getDisplayName() + " - "
 						+ build.getProject().getName());
 
-		if (build instanceof MavenBuild) {
-			MavenBuild mavenBuild = (MavenBuild) build;
+		final Iterator<? extends Entry> changeset = build.getChangeSet()
+				.iterator();
+		final Iterator<String> executedMojoStringIterator = new Iterator<String>() {
+			public boolean hasNext() {
+				return changeset.hasNext();
+			}
 
-			final Iterator<ExecutedMojo> executedMojoIterator = mavenBuild
-					.getExecutedMojos().iterator();
-			final Iterator<String> executedMojoStringIterator = new Iterator<String>() {
-				public boolean hasNext() {
-					return executedMojoIterator.hasNext();
-				}
+			public String next() {
+				return changeset.next().getAuthor() + ": "
+						+ changeset.next().getMsg();
+			}
 
-				public String next() {
-					return executedMojoIterator.next().toString();
-				}
-
-				public void remove() {
-					executedMojoIterator.remove();
-				}
-			};
-			pageBuilder.ul(new Iterable<String>() {
-				public Iterator<String> iterator() {
-					return executedMojoStringIterator;
-				}
-			});
-		}
+			public void remove() {
+				changeset.remove();
+			}
+		};
+		pageBuilder.ul(new Iterable<String>() {
+			public Iterator<String> iterator() {
+				return executedMojoStringIterator;
+			}
+		});
 
 		try {
 			if (!build.getResult().equals(Result.SUCCESS)) {
@@ -143,7 +140,7 @@ public class DokuWikiPublisher extends Notifier {
 			}
 		} catch (Exception e) {
 		}
-		
+
 		return pageBuilder.toString();
 	}
 
