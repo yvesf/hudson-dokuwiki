@@ -1,8 +1,13 @@
 package hudson.plugins.dokuwiki;
+
+import hudson.maven.ExecutedMojo;
+
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Hashtable;
+import java.util.List;
 
+import org.apache.commons.collections.ClosureUtils;
 import org.apache.xmlrpc.XmlRpcException;
 import org.apache.xmlrpc.client.XmlRpcClient;
 import org.apache.xmlrpc.client.XmlRpcClientConfigImpl;
@@ -41,17 +46,43 @@ public class DokuWiki {
 				rawText, attrs });
 	}
 
-	/**
-	 * @param args
-	 * @throws MalformedURLException
-	 * @throws XmlRpcException
-	 */
-	public static void main(String[] args) throws MalformedURLException,
-			XmlRpcException {
-		final DokuWiki dokuWiki = new DokuWiki(new URL(
-				"http://xapek.org/~yvesf/duplo/lib/exe/xmlrpc.php"),
-				"yfischer", "53145314");
+	public static class DokuWikiPageBuilder extends Object {
+		final StringBuilder stringBuilder;
 
-		dokuWiki.putPage("qs:test", "testbla from java");
+		public DokuWikiPageBuilder() {
+			stringBuilder = new StringBuilder();
+		}
+
+		public void h1(final String header1) {
+			stringBuilder.append("======");
+			stringBuilder.append(header1);
+			stringBuilder.append("======\n");
+		}
+
+		public void paragraph(final String paragraph) {
+			stringBuilder.append(paragraph);
+			stringBuilder.append("\n\n");
+		}
+
+		public void ul(final Iterable<String> list) {
+			stringBuilder.append("\n");
+			for (String o : list) {
+				stringBuilder.append("  * ");
+				stringBuilder.append(o);
+				stringBuilder.append("\n");
+			}
+			stringBuilder.append("\n");
+		}
+		
+		@Override
+		public String toString() {
+			return stringBuilder.toString();
+		}
+
+		public void h2(String header2) {
+			stringBuilder.append("=====");
+			stringBuilder.append(header2);
+			stringBuilder.append("=====\n");
+		}
 	}
 }

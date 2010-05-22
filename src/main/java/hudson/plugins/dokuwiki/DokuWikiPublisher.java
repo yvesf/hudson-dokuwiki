@@ -3,11 +3,15 @@ package hudson.plugins.dokuwiki;
 import hudson.Extension;
 import hudson.Functions;
 import hudson.Launcher;
+import hudson.maven.ExecutedMojo;
+import hudson.maven.MavenBuild;
 import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
 import hudson.model.BuildListener;
 import hudson.model.Result;
 import hudson.model.User;
+import hudson.model.Run.Summary;
+import hudson.plugins.dokuwiki.DokuWiki.DokuWikiPageBuilder;
 import hudson.scm.ChangeLogSet;
 import hudson.scm.ChangeLogSet.Entry;
 import hudson.tasks.BuildStepDescriptor;
@@ -15,10 +19,12 @@ import hudson.tasks.BuildStepMonitor;
 import hudson.tasks.Mailer;
 import hudson.tasks.Notifier;
 import hudson.tasks.Publisher;
+import hudson.util.Iterators;
 
 import java.io.IOException;
 import java.net.URL;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.logging.Level;
@@ -26,6 +32,7 @@ import java.util.logging.Logger;
 
 import net.sf.json.JSONObject;
 
+import org.apache.maven.plugin.MojoExecution;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.StaplerRequest;
 
@@ -60,6 +67,7 @@ public class DokuWikiPublisher extends Notifier {
 		return VALUES_REPLACED_WITH_NULL.contains(string) ? null : string;
 	}
 
+	@SuppressWarnings("unused")
 	private static Boolean cleanToBoolean(String string) {
 		Boolean result = null;
 		if ("true".equals(string) || "Yes".equals(string)) {
@@ -86,28 +94,63 @@ public class DokuWikiPublisher extends Notifier {
 	public boolean perform(AbstractBuild<?, ?> build, Launcher launcher,
 			BuildListener listener) {
 		try {
-			String newStatus = createTwitterStatusMessage(build);
+			final String newStatus = createDokuWikiPage(build);
 			((DescriptorImpl) getDescriptor()).putDokuWikiReport(url, pagename,
 					username, password, newStatus);
 		} catch (Exception e) {
-			LOGGER.log(Level.SEVERE, "Unable to send tweet.", e);
+			LOGGER.log(Level.SEVERE, "Unable to set DokuWiki Page.", e);
 		}
 		return true;
 	}
 
-	private String createTwitterStatusMessage(AbstractBuild<?, ?> build) {
-		String projectName = build.getProject().getName();
-		String result = build.getResult().toString();
-		String toblame = "";
+	private String createDokuWikiPage(AbstractBuild<?, ?> build) {
+		final DokuWikiPageBuilder pageBuilder = new DokuWikiPageBuilder();
+
+		pageBuilder
+				.h1(build.getResult().toString() + " - "
+						+ build.getDisplayName() + " - "
+						+ build.getProject().getName());
+
+		if (build instanceof MavenBuild) {
+			MavenBuild mavenBuild = (MavenBuild) build;
+
+			final Iterator<ExecutedMojo> executedMojoIterator = mavenBuild
+					.getExecutedMojos().iterator();
+			final Iterator<String> executedMojoStringIterator = new Iterator<String>() {
+				public boolean hasNext() {
+					return executedMojoIterator.hasNext();
+				}
+
+				public String next() {
+					return executedMojoIterator.next().toString();
+				}
+
+				public void remove() {
+					executedMojoIterator.remove();
+				}
+			};
+			pageBuilder.ul(new Iterable<String>() {
+				public Iterator<String> iterator() {
+					return executedMojoStringIterator;
+				}
+			});
+		}
+
 		try {
 			if (!build.getResult().equals(Result.SUCCESS)) {
-				toblame = getUserString(build);
+				pageBuilder.h2("Blame on");
+				pageBuilder.paragraph(getUserString(build));
 			}
 		} catch (Exception e) {
 		}
-		return String.format("==== Build Report %s for %s ====\n"
-				+ "Build result: %s blaming %s", build.number, projectName,
-				result, toblame);
+		
+		return pageBuilder.toString();
+	}
+
+	private String buildBuildSummary(final AbstractBuild<?, ?> build,
+			final DokuWikiPageBuilder pageBuilder) {
+
+		return null;
 	}
 
 	private String getUserString(AbstractBuild<?, ?> build) throws IOException {
