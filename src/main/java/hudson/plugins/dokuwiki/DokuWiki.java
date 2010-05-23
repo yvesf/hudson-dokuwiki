@@ -6,6 +6,7 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Hashtable;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.commons.collections.ClosureUtils;
 import org.apache.xmlrpc.XmlRpcException;
@@ -73,16 +74,29 @@ public class DokuWiki {
 			}
 			stringBuilder.append("\n");
 		}
-		
+
 		@Override
 		public String toString() {
 			return stringBuilder.toString();
 		}
 
-		public void h2(String header2) {
+		public void h2(final String header2) {
 			stringBuilder.append("=====");
 			stringBuilder.append(header2);
 			stringBuilder.append("=====\n");
+		}
+
+		public void simpleTable(final Map<String, String> map) {
+			stringBuilder.append("^ Key ^ Value ^\n");
+			for (final String key : map.keySet()) {
+				stringBuilder
+						.append("| " + key + " | " + map.get(key) + " |\n");
+			}
+			stringBuilder.append("\n");
+		}
+
+		public void pre(final String code) {
+			stringBuilder.append("<code>\n" + code + "\n</code>\n");
 		}
 	}
 }

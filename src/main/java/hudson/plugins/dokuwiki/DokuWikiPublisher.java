@@ -9,6 +9,7 @@ import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
 import hudson.model.BuildListener;
 import hudson.model.Result;
+import hudson.model.TaskListener;
 import hudson.model.User;
 import hudson.model.Run.Summary;
 import hudson.plugins.dokuwiki.DokuWiki.DokuWikiPageBuilder;
@@ -24,6 +25,7 @@ import hudson.util.Iterators;
 import java.io.IOException;
 import java.net.URL;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -32,6 +34,9 @@ import java.util.logging.Logger;
 
 import net.sf.json.JSONObject;
 
+import org.apache.commons.collections.ListUtils;
+import org.apache.commons.collections.SetUtils;
+import org.apache.commons.lang.StringUtils;
 import org.apache.maven.plugin.MojoExecution;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.StaplerRequest;
@@ -94,16 +99,19 @@ public class DokuWikiPublisher extends Notifier {
 	public boolean perform(AbstractBuild<?, ?> build, Launcher launcher,
 			BuildListener listener) {
 		try {
-			final String newStatus = createDokuWikiPage(build);
+			final String newStatus = createDokuWikiPage(build, launcher
+					.getListener());
 			((DescriptorImpl) getDescriptor()).putDokuWikiReport(url, pagename,
 					username, password, newStatus);
+
 		} catch (Exception e) {
 			LOGGER.log(Level.SEVERE, "Unable to set DokuWiki Page.", e);
 		}
 		return true;
 	}
 
-	private String createDokuWikiPage(AbstractBuild<?, ?> build) {
+	private String createDokuWikiPage(AbstractBuild<?, ?> build,
+			TaskListener taskListener) {
 		final DokuWikiPageBuilder pageBuilder = new DokuWikiPageBuilder();
 
 		pageBuilder
@@ -111,9 +119,35 @@ public class DokuWikiPublisher extends Notifier {
 						+ build.getDisplayName() + " - "
 						+ build.getProject().getName());
 
+		pageBuilder.paragraph("Status: "
+				+ build.getBuildStatusSummary().message);
+		try {
+			if (!build.getResult().equals(Result.SUCCESS)) {
+				pageBuilder.paragraph("Blame on: " + getUserString(build));
+			}
+		} catch (Exception e) {
+		}
+
+		pageBuilder.h2("Build Time");
+		pageBuilder.paragraph(build.getDurationString());
+
+		pageBuilder.h2("Build Variables");
+		pageBuilder.simpleTable(build.getBuildVariables());
+
+		pageBuilder.h2("Environment Variables");
+		try {
+			pageBuilder.simpleTable(build.getEnvironment(taskListener));
+		} catch (IOException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		} catch (InterruptedException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+
 		final Iterator<? extends Entry> changeset = build.getChangeSet()
 				.iterator();
-		final Iterator<String> executedMojoStringIterator = new Iterator<String>() {
+		final Iterator<String> changesetStringIterator = new Iterator<String>() {
 			public boolean hasNext() {
 				return changeset.hasNext();
 			}
@@ -127,27 +161,46 @@ public class DokuWikiPublisher extends Notifier {
 				changeset.remove();
 			}
 		};
+		pageBuilder.h2("Changeset");
 		pageBuilder.ul(new Iterable<String>() {
 			public Iterator<String> iterator() {
-				return executedMojoStringIterator;
+				return changesetStringIterator;
 			}
 		});
 
-		try {
-			if (!build.getResult().equals(Result.SUCCESS)) {
-				pageBuilder.h2("Blame on");
-				pageBuilder.paragraph(getUserString(build));
+		pageBuilder.h2("Culprits");
+		final Iterator<User> culpritsIterator = build.getCulprits().iterator();
+		final Iterator<String> culpritsStringIterator = new Iterator<String>() {
+			public void remove() {
+				culpritsIterator.remove();
 			}
-		} catch (Exception e) {
+
+			public String next() {
+				return culpritsIterator.next().getFullName();
+			}
+
+			public boolean hasNext() {
+				return culpritsIterator.hasNext();
+			}
+		};
+
+		pageBuilder.ul(new Iterable<String>() {
+			public Iterator<String> iterator() {
+				return culpritsStringIterator;
+			}
+		});
+
+		pageBuilder.h2("Build Log");
+		try {
+			StringBuilder builder = new StringBuilder();
+			for (final String line : build.getLog(200))
+				builder.append(line.replace('\0', ' ') + "\n");
+			pageBuilder.pre(builder.toString());
+		} catch (IOException e) {
+			pageBuilder.paragraph(e.toString());
+			e.printStackTrace();
 		}
-
 		return pageBuilder.toString();
-	}
-
-	private String buildBuildSummary(final AbstractBuild<?, ?> build,
-			final DokuWikiPageBuilder pageBuilder) {
-
-		return null;
 	}
 
 	private String getUserString(AbstractBuild<?, ?> build) throws IOException {
