@@ -3,15 +3,12 @@ package hudson.plugins.dokuwiki;
 import hudson.Extension;
 import hudson.Functions;
 import hudson.Launcher;
-import hudson.maven.ExecutedMojo;
-import hudson.maven.MavenBuild;
 import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
 import hudson.model.BuildListener;
 import hudson.model.Result;
 import hudson.model.TaskListener;
 import hudson.model.User;
-import hudson.model.Run.Summary;
 import hudson.plugins.dokuwiki.DokuWiki.DokuWikiPageBuilder;
 import hudson.scm.ChangeLogSet;
 import hudson.scm.ChangeLogSet.Entry;
@@ -20,12 +17,10 @@ import hudson.tasks.BuildStepMonitor;
 import hudson.tasks.Mailer;
 import hudson.tasks.Notifier;
 import hudson.tasks.Publisher;
-import hudson.util.Iterators;
 
 import java.io.IOException;
 import java.net.URL;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -34,10 +29,6 @@ import java.util.logging.Logger;
 
 import net.sf.json.JSONObject;
 
-import org.apache.commons.collections.ListUtils;
-import org.apache.commons.collections.SetUtils;
-import org.apache.commons.lang.StringUtils;
-import org.apache.maven.plugin.MojoExecution;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.StaplerRequest;
 
@@ -99,19 +90,26 @@ public class DokuWikiPublisher extends Notifier {
 	public boolean perform(AbstractBuild<?, ?> build, Launcher launcher,
 			BuildListener listener) {
 		try {
-			final String newStatus = createDokuWikiPage(build, launcher
-					.getListener());
-			((DescriptorImpl) getDescriptor()).putDokuWikiReport(url, pagename,
-					username, password, newStatus);
+			final StringBuilder page = new StringBuilder();
+			page.append(createDokuWikiMarkup(build));
 
+			AbstractBuild<?, ?> prevBuild = build;
+			for (int i = 0; i < 10
+					&& (prevBuild = prevBuild.getPreviousBuild()) instanceof AbstractBuild<?, ?>; i++) {
+				page.append(createDokuWikiMarkup((AbstractBuild<?, ?>) prevBuild));
+			}
+			
+			DokuWiki dokuWiki = new DokuWiki(new URL(url), username, password);
+			dokuWiki.putPage(pagename, page.toString());
+
+			LOGGER.info("Updated DokuWiki page: " + pagename);
 		} catch (Exception e) {
 			LOGGER.log(Level.SEVERE, "Unable to set DokuWiki Page.", e);
 		}
 		return true;
 	}
 
-	private String createDokuWikiPage(AbstractBuild<?, ?> build,
-			TaskListener taskListener) {
+	private String createDokuWikiMarkup(AbstractBuild<?, ?> build) {
 		final DokuWikiPageBuilder pageBuilder = new DokuWikiPageBuilder();
 
 		pageBuilder
@@ -132,18 +130,7 @@ public class DokuWikiPublisher extends Notifier {
 		pageBuilder.paragraph(build.getDurationString());
 
 		pageBuilder.h2("Build Variables");
-		pageBuilder.simpleTable(build.getBuildVariables());
-
-		pageBuilder.h2("Environment Variables");
-		try {
-			pageBuilder.simpleTable(build.getEnvironment(taskListener));
-		} catch (IOException e1) {
-			// TODO Auto-generated catch block
-			e1.printStackTrace();
-		} catch (InterruptedException e1) {
-			// TODO Auto-generated catch block
-			e1.printStackTrace();
-		}
+		pageBuilder.simpleKeyValueTable(build.getBuildVariables());
 
 		final Iterator<? extends Entry> changeset = build.getChangeSet()
 				.iterator();
@@ -277,7 +264,7 @@ public class DokuWikiPublisher extends Notifier {
 
 		@Override
 		public String getDisplayName() {
-			return "Twitter";
+			return "DokuWiki";
 		}
 
 		public String getId() {
@@ -311,15 +298,6 @@ public class DokuWikiPublisher extends Notifier {
 				save();
 			}
 			return super.newInstance(req, formData);
-		}
-
-		public void putDokuWikiReport(final String url, final String pagename,
-				final String username, final String password,
-				final String message) throws Exception {
-
-			DokuWiki dokuWiki = new DokuWiki(new URL(url), username, password);
-			dokuWiki.putPage(pagename, message);
-			LOGGER.info("Updated DokuWiki page: " + pagename);
 		}
 	}
 }

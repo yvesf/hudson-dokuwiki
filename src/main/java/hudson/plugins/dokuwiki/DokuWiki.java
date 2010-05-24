@@ -1,14 +1,9 @@
 package hudson.plugins.dokuwiki;
 
-import hudson.maven.ExecutedMojo;
-
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Hashtable;
-import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.collections.ClosureUtils;
 import org.apache.xmlrpc.XmlRpcException;
 import org.apache.xmlrpc.client.XmlRpcClient;
 import org.apache.xmlrpc.client.XmlRpcClientConfigImpl;
@@ -86,7 +81,7 @@ public class DokuWiki {
 			stringBuilder.append("=====\n");
 		}
 
-		public void simpleTable(final Map<String, String> map) {
+		public void simpleKeyValueTable(final Map<String, String> map) {
 			stringBuilder.append("^ Key ^ Value ^\n");
 			for (final String key : map.keySet()) {
 				stringBuilder
