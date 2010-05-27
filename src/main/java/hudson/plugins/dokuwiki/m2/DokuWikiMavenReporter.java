@@ -14,6 +14,7 @@ import hudson.scm.ChangeLogSet.Entry;
 import hudson.util.FormValidation;
 
 import java.io.IOException;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
@@ -21,6 +22,7 @@ import java.util.logging.Logger;
 
 import javax.servlet.ServletException;
 
+import net.sf.json.JSONException;
 import net.sf.json.JSONObject;
 
 import org.apache.xmlrpc.XmlRpcException;
@@ -29,7 +31,13 @@ import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.StaplerRequest;
 import org.xapek.dokuwiki.DokuWiki;
 import org.xapek.dokuwiki.TypedTransformer;
-import org.xapek.dokuwiki.DokuWiki.DokuWikiPageBuilder;
+import org.xapek.dokuwiki.markup.DokuWikiList;
+import org.xapek.dokuwiki.markup.DokuWikiPage;
+import org.xapek.dokuwiki.markup.DokuWikiParagraph;
+import org.xapek.dokuwiki.markup.DokuWikiSection;
+import org.xapek.dokuwiki.markup.DokuWikiTable;
+
+import com.jhlabs.image.AverageFilter;
 
 /**
  * DokuWiki Reporter for M2 project
@@ -79,10 +87,8 @@ public class DokuWikiMavenReporter extends MavenReporter {
 		// final PrintStream mavenPrintStream = listener.getLogger();
 		final URL url = new URL(xmlrpcurl);
 		final DokuWiki dokuWiki = new DokuWiki(url, username, password);
-		final DokuWikiPageBuilder pageBuilder = new DokuWikiPageBuilder();
-
-		// Format DokuWiki Page
-		pageBuilder.h1("Hudson Report for " + build.getProject().getName());
+		final DokuWikiPage dokuWikiPage = new DokuWikiPage("Hudson Report for "
+				+ build.getProject().getName());
 
 		Map<String, String> buildStats = new HashMap<String, String>() {
 			private static final long serialVersionUID = 1L;
@@ -109,44 +115,57 @@ public class DokuWikiMavenReporter extends MavenReporter {
 								.getTimestamp().getTime());
 			}
 		};
-		pageBuilder.simpleKeyValueTable(buildStats);
+		dokuWikiPage.append(DokuWikiTable.simpleKeyValueTable(new String[] {
+				"Typ", "last Build" }, buildStats));
 
 		// iterate through all builds
 		MavenBuild currentBuild = build;
 		do {
-			pageBuilder.h2("#" + currentBuild.getNumber() + " - "
+			final DokuWikiSection buildSummary = DokuWikiSection.level5("#"
+					+ currentBuild.getNumber() + " - "
 					+ currentBuild.getResult().toString());
-			pageBuilder.paragraph("Built in "
+			dokuWikiPage.append(buildSummary);
+
+			buildSummary.append(new DokuWikiParagraph("Built in "
 					+ currentBuild.getDurationString() + " starting "
-					+ currentBuild.getTimestamp().getTime().toString());
-			{ //Mojos
-				pageBuilder.h3(Messages.DokuWikiMavenReporter_executedMojos());
-				pageBuilder.ul(currentBuild.getExecutedMojos(),
+					+ currentBuild.getTimestamp().getTime().toString()));
+
+			{ // Mojos
+				final DokuWikiSection mojoSummary = DokuWikiSection
+						.level4(Messages.DokuWikiMavenReporter_executedMojos());
+				buildSummary.append(mojoSummary);
+
+				mojoSummary.append(DokuWikiList.simpleList(currentBuild
+						.getExecutedMojos(),
 						new TypedTransformer<ExecutedMojo, String>() {
 							@Override
 							public String typedTransform(ExecutedMojo input) {
 								return input.goal + "("
 										+ input.getDurationString() + ")";
 							}
-						});
+						}));
 			}
 			{// Changesets
-				pageBuilder.h3(Messages.DokuWikiMavenReporter_changesets());
-				pageBuilder.ul(currentBuild.getChangeSet(),
+				final DokuWikiSection changesets = DokuWikiSection
+						.level4(Messages.DokuWikiMavenReporter_changesets());
+				buildSummary.append(changesets);
+
+				changesets.append(DokuWikiList.simpleList(currentBuild
+						.getChangeSet(),
 						new TypedTransformer<ChangeLogSet.Entry, String>() {
 							@Override
 							public String typedTransform(Entry input) {
 								return input.getAuthor() + ": "
 										+ input.getMsg();
 							}
-						});
+						}));
 			}
 		} while ((currentBuild = currentBuild.getPreviousBuild()) != null);
 
 		// Put page
 		LOGGER.info(Messages.DokuWikiMavenReporter_putPage(pagename));
 		try {
-			dokuWiki.putPage(pagename, pageBuilder.toString());
+			dokuWiki.putPage(pagename, dokuWikiPage);
 		} catch (XmlRpcException e) {
 			LOGGER.severe(e.getMessage());
 			throw new IOException(e);
@@ -167,47 +186,63 @@ public class DokuWikiMavenReporter extends MavenReporter {
 		@Override
 		public DokuWikiMavenReporter newInstance(final StaplerRequest req,
 				final JSONObject formData) throws FormException {
+			doCheck(formData);
+
 			final DokuWikiMavenReporter docLinksMavenReporter = new DokuWikiMavenReporter();
 			req.bindParameters(docLinksMavenReporter, "dokuwiki.");
 			return docLinksMavenReporter;
 		}
 
-		/**
-		 * check to see if title is not null.
-		 */
-		public FormValidation doCheckTitle(
-				@AncestorInPath final AbstractProject<?, ?> project,
-				@QueryParameter final String title) throws IOException,
-				ServletException {
-			project.checkPermission(Job.CONFIGURE);
-			// return DocLinksUtils.validateTitle(title);
-			return FormValidation.ok();
+		private void doCheck(JSONObject formData) throws FormException {
+			try {
+				String xmlrpcurl= formData.getString("xmlrpcurl");
+				URL url = new URL(xmlrpcurl);
+				if (!"http".equals(url.getProtocol())) {
+					throw new FormException("RPC-Url should begin with http://", "xmlrpcurl");
+				}
+			} catch (MalformedURLException e) {
+				throw new FormException("RPC-Url should begin with http://", "xmlrpcurl");
+			} catch (JSONException e) {
+				throw new FormException(e.getMessage(), "xmlrpcurl");
+			}
 		}
 
-		/**
-		 * check to see if directory is valid and exists.
-		 */
-		public FormValidation doCheckDirectory(
-				@AncestorInPath final AbstractProject<?, ?> project,
-				@QueryParameter final String dir) throws IOException,
-				ServletException {
-			project.checkPermission(Job.CONFIGURE);
-			// return DocLinksUtils.validateDirectory(project, dir);
-			return FormValidation.ok();
-		}
-
-		/**
-		 * check to see if file exists.
-		 */
-		public FormValidation doCheckFile(
-				@AncestorInPath final AbstractProject<?, ?> project,
-				@QueryParameter final String dir,
-				@QueryParameter final String file) throws IOException,
-				ServletException {
-			project.checkPermission(Job.CONFIGURE);
-			// return DocLinksUtils.validateFile(project, dir, file);
-			return FormValidation.ok();
-		}
+		// /**
+		// * check to see if title is not null.
+		// */
+		// public FormValidation doCheckTitle(
+		// @AncestorInPath final AbstractProject<?, ?> project,
+		// @QueryParameter final String title) throws IOException,
+		// ServletException {
+		// project.checkPermission(Job.CONFIGURE);
+		// // return DocLinksUtils.validateTitle(title);
+		// return FormValidation.ok();
+		// }
+		//
+		// /**
+		// * check to see if directory is valid and exists.
+		// */
+		// public FormValidation doCheckDirectory(
+		// @AncestorInPath final AbstractProject<?, ?> project,
+		// @QueryParameter final String dir) throws IOException,
+		// ServletException {
+		// project.checkPermission(Job.CONFIGURE);
+		// // return DocLinksUtils.validateDirectory(project, dir);
+		// return FormValidation.ok();
+		// }
+		//
+		// /**
+		// * check to see if file exists.
+		// */
+		// public FormValidation doCheckFile(
+		// @AncestorInPath final AbstractProject<?, ?> project,
+		// @QueryParameter final String dir,
+		// @QueryParameter final String file) throws IOException,
+		// ServletException {
+		// project.checkPermission(Job.CONFIGURE);
+		// // return DocLinksUtils.validateFile(project, dir, file);
+		// return FormValidation.ok();
+		// }
 
 		@Override
 		public String getDisplayName() {
