@@ -1,51 +1,54 @@
 package hudson.plugins.dokuwiki.m2;
 
 import hudson.Extension;
-import hudson.FilePath;
 import hudson.Launcher;
-import hudson.Util;
+import hudson.maven.ExecutedMojo;
 import hudson.maven.MavenBuild;
-import hudson.maven.MavenModule;
 import hudson.maven.MavenReporter;
 import hudson.maven.MavenReporterDescriptor;
 import hudson.model.AbstractProject;
-import hudson.model.Action;
 import hudson.model.BuildListener;
-import hudson.model.Descriptor.FormException;
 import hudson.model.Job;
-import hudson.model.Result;
+import hudson.scm.ChangeLogSet;
+import hudson.scm.ChangeLogSet.Entry;
 import hudson.util.FormValidation;
-import java.io.File;
+
 import java.io.IOException;
-import java.io.PrintStream;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
+import java.net.URL;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Logger;
+
 import javax.servlet.ServletException;
+
 import net.sf.json.JSONObject;
+
+import org.apache.xmlrpc.XmlRpcException;
 import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.StaplerRequest;
+import org.xapek.dokuwiki.DokuWiki;
+import org.xapek.dokuwiki.TypedTransformer;
+import org.xapek.dokuwiki.DokuWiki.DokuWikiPageBuilder;
 
 /**
- * Reporter for M2 project
+ * DokuWiki Reporter for M2 project
  * 
- * @author Seiji Sogabe
+ * @author yvesf
  */
 public class DokuWikiMavenReporter extends MavenReporter {
-
 	private static final long serialVersionUID = 1L;
 	private static final Logger LOGGER = Logger
 			.getLogger(DokuWikiMavenReporter.class.getName());
+
 	@Extension
 	public static final MavenReporterDescriptor DESCRIPTOR = new DokuWikiMavenReporterDescriptor();
 
-	
 	public String username;
 	public String password;
-	
+	public String pagename;
+	public String xmlrpcurl;
+
 	public DokuWikiMavenReporter() {
 		System.out.println("DokuWikiMavenReporter.DokuWikiMavenReporter()");
 	}
@@ -55,49 +58,103 @@ public class DokuWikiMavenReporter extends MavenReporter {
 		return DESCRIPTOR;
 	}
 
-	@Override
-	public Action getProjectAction(final MavenModule module) {
-		// final Map<String, Document> map = new LinkedHashMap<String,
-		// Document>();
-		// for (final Document doc : documents) {
-		// map.put(doc.getId(), doc);
-		// }
-		// return new DocLinksMavenAction(module, map);
-		return null;
-	}
+	// @Override
+	// public Action getProjectAction(final MavenModule module) {
+	// // final Map<String, Document> map = new LinkedHashMap<String,
+	// // Document>();
+	// // for (final Document doc : documents) {
+	// // map.put(doc.getId(), doc);
+	// // }
+	// // return new DocLinksMavenAction(module, map);
+	// return null;
+	// }
 
 	@Override
 	public boolean end(final MavenBuild build, final Launcher launcher,
 			final BuildListener listener) throws InterruptedException,
 			IOException {
-		final PrintStream logger = listener.getLogger();
+		LOGGER.entering(getClass().getName(), "end", new Object[] { build,
+				launcher, listener });
 
-		logger.println("FOOOOOO"+password+username);
+		// final PrintStream mavenPrintStream = listener.getLogger();
+		final URL url = new URL(xmlrpcurl);
+		final DokuWiki dokuWiki = new DokuWiki(url, username, password);
+		final DokuWikiPageBuilder pageBuilder = new DokuWikiPageBuilder();
 
-		if (build.getResult().isWorseOrEqualTo(Result.FAILURE)) {
-			return true;
+		// Format DokuWiki Page
+		pageBuilder.h1("Hudson Report for " + build.getProject().getName());
+
+		Map<String, String> buildStats = new HashMap<String, String>() {
+			private static final long serialVersionUID = 1L;
+			{
+				put(Messages.DokuWikiMavenReporter_lastStable(), build
+						.getProject().getLastStableBuild().getId()
+						+ "- "
+						+ build.getProject().getLastStableBuild()
+								.getTimestamp().getTime());
+				put(Messages.DokuWikiMavenReporter_lastSuccessful(), build
+						.getProject().getLastSuccessfulBuild().getId()
+						+ " - "
+						+ build.getProject().getLastSuccessfulBuild()
+								.getTimestamp().getTime());
+				put(Messages.DokuWikiMavenReporter_lastCompleted(), build
+						.getProject().getLastCompletedBuild().getId()
+						+ " - "
+						+ build.getProject().getLastCompletedBuild()
+								.getTimestamp().getTime());
+				put(Messages.DokuWikiMavenReporter_lastFailed(), build
+						.getProject().getLastFailedBuild().getId()
+						+ " - "
+						+ build.getProject().getLastFailedBuild()
+								.getTimestamp().getTime());
+			}
+		};
+		pageBuilder.simpleKeyValueTable(buildStats);
+
+		// iterate through all builds
+		MavenBuild currentBuild = build;
+		do {
+			pageBuilder.h2("#" + currentBuild.getNumber() + " - "
+					+ currentBuild.getResult().toString());
+			pageBuilder.paragraph("Built in "
+					+ currentBuild.getDurationString() + " starting "
+					+ currentBuild.getTimestamp().getTime().toString());
+			{ //Mojos
+				pageBuilder.h3(Messages.DokuWikiMavenReporter_executedMojos());
+				pageBuilder.ul(currentBuild.getExecutedMojos(),
+						new TypedTransformer<ExecutedMojo, String>() {
+							@Override
+							public String typedTransform(ExecutedMojo input) {
+								return input.goal + "("
+										+ input.getDurationString() + ")";
+							}
+						});
+			}
+			{// Changesets
+				pageBuilder.h3(Messages.DokuWikiMavenReporter_changesets());
+				pageBuilder.ul(currentBuild.getChangeSet(),
+						new TypedTransformer<ChangeLogSet.Entry, String>() {
+							@Override
+							public String typedTransform(Entry input) {
+								return input.getAuthor() + ": "
+										+ input.getMsg();
+							}
+						});
+			}
+		} while ((currentBuild = currentBuild.getPreviousBuild()) != null);
+
+		// Put page
+		LOGGER.info(Messages.DokuWikiMavenReporter_putPage(pagename));
+		try {
+			dokuWiki.putPage(pagename, pageBuilder.toString());
+		} catch (XmlRpcException e) {
+			LOGGER.severe(e.getMessage());
+			throw new IOException(e);
 		}
 
+		LOGGER.exiting(getClass().getName(), "end", new Object[] { build,
+				launcher, listener });
 		return true;
-		//		
-		// final FilePath ws = build.getWorkspace();
-		// final FilePath docLinksDir = new FilePath(getDocLinksDir(build
-		// .getParent()));
-		//
-		// try {
-		// docLinksDir.deleteRecursive();
-		// for (final Document doc : documents) {
-		// DocLinksUtils.publishDocument(doc, ws, docLinksDir, logger);
-		// }
-		// } catch (final IOException e) {
-		// Util.displayIOException(e, listener);
-		// build.setResult(Result.UNSTABLE);
-		// return true;
-		// }
-		//
-		// build.registerAsProjectAction(this);
-		//
-		// return true;
 	}
 
 	public static class DokuWikiMavenReporterDescriptor extends
